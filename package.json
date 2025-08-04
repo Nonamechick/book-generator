@@ -7,16 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "build:css": "tailwindcss -i ./src/input.css -o ./dist/output.css --watch"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@faker-js/faker": "^9.0.3",
     "rc-slider": "^11.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "seedrandom": "^3.0.5",
-    "tailwindcss": "^3.4.14"
+    "seedrandom": "^3.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^8.57.0",
@@ -28,6 +26,8 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.12",
     "globals": "^15.9.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
     "vite": "^5.4.8"
   }
 }

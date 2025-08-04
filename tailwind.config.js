@@ -1,11 +1,22 @@
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+export default  {
   content: [
     "./index.html",
-    "./src/**/*.{js,jsx}",
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        'indigo': {
+          50: '#f0f4ff',
+          100: '#e0e7ff',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          800: '#3730a3',
+        }
+      }
+    },
   },
   plugins: [],
 }
