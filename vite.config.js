@@ -7,4 +7,7 @@ export default defineConfig({
   plugins: [
     react()
   ],
+  optimizeDeps: {
+    include: ['@faker-js/faker']
+  }
 })

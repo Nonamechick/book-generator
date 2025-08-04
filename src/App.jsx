@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Faker, en, de, ja } from '@faker-js/faker';
 import seedrandom from 'seedrandom';
 import Slider from 'rc-slider';
@@ -10,6 +10,45 @@ const locales = {
   'ja_JP': ja,
 };
 
+// Generate a random ISBN
+const generateISBN = (faker) => {
+  return `978-${faker.number.int({ min: 0, max: 9 })}${faker.number.int({ min: 10000000, max: 99999999 })}`;
+};
+
+// Generate random publisher name
+const generatePublisher = (faker) => {
+  const publishers = [
+    "HarperCollins", "Penguin Random House", "Simon & Schuster", "Macmillan", "Hachette",
+    "Scholastic", "Wiley", "Springer", "Oxford University Press", "Cambridge University Press"
+  ];
+  return publishers[Math.floor(Math.random() * publishers.length)];
+};
+
+// Generate review text based on locale
+const generateReviewText = (faker, locale) => {
+  try {
+    if (locale === 'ja_JP') {
+      const japaneseReviews = [
+        "この本は素晴らしいです。物語がとても魅力的でした。",
+        "面白い内容でしたが、もう少し展開が速ければ良かったです。",
+        "キャラクターの描写が素晴らしく、感情移入できました。",
+        "読みやすく、一気に読み終えてしまいました。",
+        "期待通りでしたが、もう少し驚きがあれば良かったです。",
+        "文章が美しく、情景が目に浮かぶようでした。",
+        "テーマが深く、読後も考えさせられる作品でした。",
+        "初心者にもおすすめできる一冊です。",
+        "専門的な内容ですが、分かりやすく解説されていました。",
+        "続きが気になるので、シリーズの次作も楽しみです。"
+      ];
+      return japaneseReviews[Math.floor(Math.random() * japaneseReviews.length)];
+    } else {
+      return faker.lorem.paragraph();
+    }
+  } catch (e) {
+    return faker.lorem.sentence();
+  }
+};
+
 const App = () => {
   const [locale, setLocale] = useState('en_US');
   const [seed, setSeed] = useState(Math.random().toString(36).substring(2, 15));
@@ -17,57 +56,170 @@ const App = () => {
   const [avgReviews, setAvgReviews] = useState(4.7);
   const [books, setBooks] = useState([]);
   const [error, setError] = useState('');
-
-  const generateBooks = () => {
+  const [expandedBookId, setExpandedBookId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const observer = useRef();
+  const loaderRef = useRef(null);
+  
+  // Generate a single book with the given parameters
+  const generateBook = useCallback((currentFaker, bookSeed, index) => {
+    const bookRng = seedrandom(bookSeed);
+    
+    // Calculate likes with fractional part
+    const likesFraction = avgLikes - Math.floor(avgLikes);
+    const likes = Math.floor(avgLikes) + (bookRng() < likesFraction ? 1 : 0);
+    
+    // Calculate reviews with fractional part
+    const reviewsFraction = avgReviews - Math.floor(avgReviews);
+    const reviews = Math.floor(avgReviews) + (bookRng() < reviewsFraction ? 1 : 0);
+    
+    // Generate title
+    let title;
     try {
+      title = currentFaker.book.title();
+    } catch (e) {
+      title = currentFaker.lorem.sentence();
+    }
+    
+    // Generate author(s)
+    const authorCount = Math.floor(bookRng() * 3) + 1; // 1-3 authors
+    const authors = [];
+    for (let i = 0; i < authorCount; i++) {
+      authors.push(currentFaker.person.fullName());
+    }
+    const authorText = authors.join(', ');
+    
+    // Generate reviews if any
+    const reviewTexts = [];
+    for (let i = 0; i < reviews; i++) {
+      const reviewRng = seedrandom(`${bookSeed}-review-${i}`);
+      reviewTexts.push(generateReviewText(currentFaker, locale));
+    }
+    
+    // Generate book cover image using Faker
+    const coverImage = currentFaker.image.url({
+      width: 200,
+      height: 300,
+      category: 'book',
+      randomize: true,
+      seed: bookSeed
+    });
+    
+    return {
+      id: `${seed}-${index}`,
+      index: index + 1,
+      isbn: generateISBN(currentFaker),
+      title,
+      author: authorText,
+      publisher: generatePublisher(currentFaker),
+      likes,
+      reviews,
+      reviewTexts,
+      coverImage
+    };
+  }, [avgLikes, avgReviews, locale, seed]);
+  
+  // Generate initial books
+  const generateInitialBooks = useCallback(() => {
+    try {
+      setLoading(true);
       const currentFaker = new Faker({ locale: locales[locale] });
       const rng = seedrandom(seed);
       const newBooks = [];
       
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 20; i++) {
         const bookSeed = rng().toString();
-        const bookRng = seedrandom(bookSeed);
-        
-        const likesFraction = avgLikes - Math.floor(avgLikes);
-        const likes = Math.floor(avgLikes) + (bookRng() < likesFraction ? 1 : 0);
-        
-        const reviewsFraction = avgReviews - Math.floor(avgReviews);
-        const reviews = Math.floor(avgReviews) + (bookRng() < reviewsFraction ? 1 : 0);
-        
-        let title;
-        try {
-          title = currentFaker.book.title();
-        } catch (e) {
-          title = currentFaker.lorem.sentence();
-        }
-        
-        const author = currentFaker.person.fullName();
-        
-        newBooks.push({
-          id: `${seed}-${i}`,
-          title,
-          author,
-          likes,
-          reviews
-        });
+        newBooks.push(generateBook(currentFaker, bookSeed, i));
       }
       
       setBooks(newBooks);
       setError('');
+      setHasMore(true);
     } catch (err) {
       console.error(err);
       setError('Error generating books. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  };
-
+  }, [generateBook, locale, seed]);
+  
+  // Load more books for infinite scrolling
+  const loadMoreBooks = useCallback(() => {
+    if (loading || !hasMore) return;
+    
+    try {
+      setLoading(true);
+      const currentFaker = new Faker({ locale: locales[locale] });
+      const rng = seedrandom(seed);
+      
+      // Skip the books we already have
+      for (let i = 0; i < books.length; i++) {
+        rng();
+      }
+      
+      const newBooks = [...books];
+      const startIndex = books.length;
+      const batchSize = 10;
+      
+      for (let i = 0; i < batchSize; i++) {
+        const bookSeed = rng().toString();
+        newBooks.push(generateBook(currentFaker, bookSeed, startIndex + i));
+      }
+      
+      setBooks(newBooks);
+      setError('');
+      
+      // For demo purposes, limit to 100 books
+      if (newBooks.length >= 100) {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Error generating more books. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [books, generateBook, hasMore, loading, locale, seed]);
+  
+  // Set up intersection observer for infinite scrolling
+  useEffect(() => {
+    const options = {
+      root: null,
+      rootMargin: "20px",
+      threshold: 1.0
+    };
+    
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore && !loading) {
+        loadMoreBooks();
+      }
+    }, options);
+    
+    if (loaderRef.current) {
+      observer.current.observe(loaderRef.current);
+    }
+    
+    return () => {
+      if (loaderRef.current) {
+        observer.current.unobserve(loaderRef.current);
+      }
+    };
+  }, [hasMore, loading, loadMoreBooks]);
+  
+  // Generate initial books when parameters change
+  useEffect(() => {
+    generateInitialBooks();
+  }, [generateInitialBooks]);
+  
   const handleRandomSeed = () => {
     setSeed(Math.random().toString(36).substring(2, 15));
   };
-
-  useEffect(() => {
-    setBooks([]);
-  }, [locale, seed]);
-
+  
+  const toggleBookDetails = (bookId) => {
+    setExpandedBookId(expandedBookId === bookId ? null : bookId);
+  };
+  
   const formatNumber = (num) => {
     if (num < 10000) return num.toString();
     
@@ -89,7 +241,7 @@ const App = () => {
     
     return str.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   };
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -202,7 +354,7 @@ const App = () => {
               </div>
               
               <button
-                onClick={generateBooks}
+                onClick={generateInitialBooks}
                 className="w-full py-3 px-4 rounded-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
               >
                 Generate Books
@@ -227,31 +379,129 @@ const App = () => {
                   <p className="text-gray-500">Configure the settings and click "Generate Books" to get started</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-100">
-                  {books.map((book, index) => (
-                    <div key={book.id} className="p-6 hover:bg-gray-50 transition-colors">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold text-gray-800">{book.title}</h3>
-                          <p className="text-gray-600">by {book.author}</p>
-                        </div>
-                        <div className="bg-indigo-100 text-indigo-800 py-1 px-3 rounded-full text-sm font-medium">
-                          {formatNumber(book.likes)} {book.likes === 1 ? 'Like' : 'Likes'}
-                        </div>
-                      </div>
-                      
-                      <div className="bg-indigo-50 p-4 rounded-lg">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          Index
+                        </th>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          ISBN
+                        </th>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          Title
+                        </th>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          Author(s)
+                        </th>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          Publisher
+                        </th>
+                        <th scope="col" className="px-6 py-4 text-left text-base font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {books.map((book) => (
+                        <React.Fragment key={book.id}>
+                          <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => toggleBookDetails(book.id)}>
+                            <td className="px-6 py-5 whitespace-nowrap text-base font-medium text-gray-900">
+                              {book.index}
+                            </td>
+                            <td className="px-6 py-5 whitespace-nowrap text-base text-gray-500">
+                              {book.isbn}
+                            </td>
+                            <td className="px-6 py-5 text-base font-medium text-gray-900">
+                              {book.title}
+                            </td>
+                            <td className="px-6 py-5 text-base text-gray-500">
+                              {book.author}
+                            </td>
+                            <td className="px-6 py-5 whitespace-nowrap text-base text-gray-500">
+                              {book.publisher}
+                            </td>
+                            <td className="px-6 py-5 whitespace-nowrap text-base font-medium">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleBookDetails(book.id);
+                                }}
+                                className="text-indigo-600 hover:text-indigo-900 text-base"
+                              >
+                                {expandedBookId === book.id ? 'Hide Details' : 'Show Details'}
+                              </button>
+                            </td>
+                          </tr>
+                          {expandedBookId === book.id && (
+                            <tr className="bg-gray-50">
+                              <td colSpan="6" className="px-6 py-5">
+                                <div className="flex flex-col md:flex-row gap-8">
+                                  <div className="flex-shrink-0">
+                                    <div className="relative">
+                                      <img 
+                                        src={book.coverImage} 
+                                        alt={book.title} 
+                                        className="w-40 h-60 object-cover rounded-lg shadow-lg"
+                                      />
+                                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent rounded-lg flex items-end p-3">
+                                        <div className="text-white text-sm font-medium truncate w-full">
+                                          {book.title}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex-grow">
+                                    <h3 className="text-xl font-bold text-gray-800 mb-3">{book.title}</h3>
+                                    <p className="text-lg text-gray-600 mb-2">by {book.author}</p>
+                                    <p className="text-lg text-gray-600 mb-2">Publisher: {book.publisher}</p>
+                                    <p className="text-lg text-gray-600 mb-2">ISBN: {book.isbn}</p>
+                                    
+                                    <div className="flex items-center mt-4 mb-4">
+                                      <div className="bg-indigo-100 text-indigo-800 py-2 px-4 rounded-full text-base font-medium mr-4">
+                                        {formatNumber(book.likes)} {book.likes === 1 ? 'Like' : 'Likes'}
+                                      </div>
+                                      <div className="bg-green-100 text-green-800 py-2 px-4 rounded-full text-base font-medium">
+                                        {formatNumber(book.reviews)} {book.reviews === 1 ? 'Review' : 'Reviews'}
+                                      </div>
+                                    </div>
+                                    
+                                    {book.reviews > 0 && (
+                                      <div>
+                                        <h4 className="text-lg font-medium text-gray-700 mb-3">Reviews:</h4>
+                                        <div className="space-y-3">
+                                          {book.reviewTexts.map((review, index) => (
+                                            <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                                              <p className="text-base text-gray-700">{review}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {hasMore && (
+                    <div ref={loaderRef} className="flex justify-center py-6">
+                      {loading && (
                         <div className="flex items-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-600 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          <svg className="animate-spin -ml-1 mr-3 h-6 w-6 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                          <span className="text-indigo-800 font-medium">
-                            {formatNumber(book.reviews)} {book.reviews === 1 ? 'Review' : 'Reviews'}
-                          </span>
+                          <span className="text-indigo-600 text-lg">Loading more books...</span>
                         </div>
-                      </div>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
