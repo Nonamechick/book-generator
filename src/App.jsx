@@ -15,15 +15,15 @@ const generateISBN = (faker) => {
   return `978-${faker.number.int({ min: 0, max: 9 })}${faker.number.int({ min: 10000000, max: 99999999 })}`;
 };
 
-const generatePublisher = (faker) => {
+const generatePublisher = (rng) => {
   const publishers = [
     "HarperCollins", "Penguin Random House", "Simon & Schuster", "Macmillan", "Hachette",
     "Scholastic", "Wiley", "Springer", "Oxford University Press", "Cambridge University Press"
   ];
-  return publishers[Math.floor(Math.random() * publishers.length)];
+  return publishers[Math.floor(rng() * publishers.length)];
 };
 
-const generateReviewText = (faker, locale) => {
+const generateReviewText = (faker, locale, rng) => {
   try {
     if (locale === 'ja_JP') {
       const japaneseReviews = [
@@ -38,9 +38,15 @@ const generateReviewText = (faker, locale) => {
         "専門的な内容ですが、分かりやすく解説されていました。",
         "続きが気になるので、シリーズの次作も楽しみです。"
       ];
-      return japaneseReviews[Math.floor(Math.random() * japaneseReviews.length)];
+      return japaneseReviews[Math.floor(rng() * japaneseReviews.length)];
     } else {
-      return faker.lorem.paragraph();
+      // Generate 1 to 3 sentences using faker with deterministic randomness
+      const sentenceCount = Math.floor(rng() * 3) + 1;
+      let text = '';
+      for(let i = 0; i < sentenceCount; i++){
+        text += faker.lorem.sentence() + ' ';
+      }
+      return text.trim();
     }
   } catch (e) {
     return faker.lorem.sentence();
@@ -58,9 +64,16 @@ const App = () => {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
 
-  const generateBook = useCallback((currentFaker, bookIndex) => {
-    const bookSeed = `${seed}-${bookIndex}`;
+  const generateBook = useCallback((baseSeed, bookIndex) => {
+    const bookSeed = `${baseSeed}-${bookIndex}`;
     const bookRng = seedrandom(bookSeed);
+
+    // Create a Faker instance with the correct locale
+    const currentFaker = new Faker({ locale: locales[locale] });
+    // Seed faker's internal RNG to keep consistency (using an integer seed)
+    const seedNumber = Math.floor(bookRng() * 1_000_000);
+    currentFaker.seed(seedNumber);
+
     const likesFraction = avgLikes - Math.floor(avgLikes);
     const likes = Math.floor(avgLikes) + (bookRng() < likesFraction ? 1 : 0);
     const reviewsFraction = avgReviews - Math.floor(avgReviews);
@@ -81,7 +94,7 @@ const App = () => {
 
     const reviewTexts = [];
     for (let i = 0; i < reviews; i++) {
-      reviewTexts.push(generateReviewText(currentFaker, locale));
+      reviewTexts.push(generateReviewText(currentFaker, locale, bookRng));
     }
 
     return {
@@ -90,21 +103,20 @@ const App = () => {
       isbn: generateISBN(currentFaker),
       title,
       author: authors.join(', '),
-      publisher: generatePublisher(currentFaker),
+      publisher: generatePublisher(bookRng),
       likes,
       reviews,
       reviewTexts,
-      coverImage: currentFaker.image.url({ width: 200, height: 300 })
+      coverImage: currentFaker.image.url({ width: 200, height: 300 }),
     };
-  }, [avgLikes, avgReviews, locale, seed]);
+  }, [avgLikes, avgReviews, locale]);
 
   const generateInitialBooks = useCallback(() => {
     try {
       setLoading(true);
-      const currentFaker = new Faker({ locale: locales[locale] });
       const newBooks = [];
       for (let i = 0; i < 20; i++) {
-        newBooks.push(generateBook(currentFaker, i));
+        newBooks.push(generateBook(seed, i));
       }
       setBooks(newBooks);
       setPage(1);
@@ -114,18 +126,17 @@ const App = () => {
     } finally {
       setLoading(false);
     }
-  }, [generateBook, locale]);
+  }, [generateBook, seed]);
 
   const fetchMoreData = useCallback(() => {
     if (loading) return;
     try {
       setLoading(true);
-      const currentFaker = new Faker({ locale: locales[locale] });
       const startIndex = page * 20;
       const batchSize = 10;
       const newBooks = [...books];
       for (let i = 0; i < batchSize; i++) {
-        newBooks.push(generateBook(currentFaker, startIndex + i));
+        newBooks.push(generateBook(seed, startIndex + i));
       }
       setBooks(newBooks);
       setPage(prevPage => prevPage + 1);
@@ -134,7 +145,7 @@ const App = () => {
     } finally {
       setLoading(false);
     }
-  }, [books, generateBook, locale, loading, page]);
+  }, [books, generateBook, loading, page, seed]);
 
   useEffect(() => {
     generateInitialBooks();
